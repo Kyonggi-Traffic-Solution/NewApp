@@ -35,6 +35,16 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   firebase_core: ^3.13.1
+  flutter_dotenv: ^5.2.1
+  firebase_auth: ^5.5.4
+  cloud_firestore: ^5.6.8
+  intl: ^0.20.2
+  firebase_storage: ^12.4.6
+  image_picker: ^1.1.2
+  native_exif: ^0.6.2
+  permission_handler: ^12.0.0+1
+  url_launcher: ^6.3.1
+  geolocator: ^14.0.0
 
 dev_dependencies:
   flutter_test:
@@ -57,6 +67,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/config/.env
 
   # To add assets to your application, add an assets section, like this:
   # assets:
