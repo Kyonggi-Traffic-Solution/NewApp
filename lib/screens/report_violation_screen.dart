@@ -697,7 +697,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                             onPressed: () {
                               Navigator.of(context).pop();
                             },
-                            child: const Text('수정하기'),
+                            child: const Text('취소'),
                           ),
                           ElevatedButton(
                             onPressed: () {
