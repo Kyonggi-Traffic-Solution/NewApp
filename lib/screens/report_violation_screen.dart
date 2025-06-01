@@ -19,13 +19,14 @@ class ReportViolationScreen extends StatefulWidget {
 
 class _ReportViolationScreenState extends State<ReportViolationScreen> with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  final _dateController = TextEditingController();
   final _violationController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   File? _imageFile;
   bool _isLoading = false;
   bool _hasGpsData = false;
   String _gpsInfo = '';
+  DateTime? _imageDateTime; // EXIF에서 추출한 촬영 날짜/시간
+  String _imageDateTimeDisplay = ''; // 화면에 표시할 날짜/시간 문자열
   late AnimationController _animationController;
   late Animation<double> _fadeInAnimation;
   
@@ -40,7 +41,6 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
   @override
   void initState() {
     super.initState();
-    _dateController.text = DateFormat('yyyy-MM-dd').format(DateTime.now());
     
     _animationController = AnimationController(
       vsync: this,
@@ -58,7 +58,6 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
   
   @override
   void dispose() {
-    _dateController.dispose();
     _violationController.dispose();
     _animationController.dispose();
     super.dispose();
@@ -182,8 +181,8 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
     }
   }
 
-  // EXIF 데이터에서 GPS 정보 체크하는 메서드 (native_exif 패키지 사용)
-  Future<bool> _checkGpsExifData(File imageFile) async {
+  // EXIF 데이터에서 GPS 정보와 촬영 날짜/시간 추출
+  Future<bool> _extractExifData(File imageFile) async {
     try {
       // Exif 인스턴스 생성
       final exif = await Exif.fromPath(imageFile.path);
@@ -191,25 +190,43 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
       // GPS 좌표 가져오기
       final coordinates = await exif.getLatLong();
       
-      // 모든 EXIF 속성 가져오기 (디버깅용)
+      // 촬영 날짜/시간 가져오기
       final attributes = await exif.getAttributes();
+      DateTime? dateTime;
+      
+      // DateTime 태그들을 순서대로 확인
+      if (attributes != null) {
+        // DateTime 관련 태그들 확인
+        List<String> dateTimeTags = [
+          'DateTime',
+          'DateTimeOriginal', 
+          'DateTimeDigitized',
+          'GPS DateStamp'
+        ];
+        
+        for (String tag in dateTimeTags) {
+          if (attributes.containsKey(tag) && attributes[tag] != null) {
+            try {
+              String dateTimeStr = attributes[tag].toString();
+              // EXIF 날짜 형식: "YYYY:MM:DD HH:MM:SS"
+              dateTime = DateFormat('yyyy:MM:dd HH:mm:ss').parse(dateTimeStr);
+              print('EXIF에서 추출한 날짜: $dateTimeStr -> $dateTime');
+              break;
+            } catch (e) {
+              print('날짜 파싱 오류 ($tag): $e');
+              continue;
+            }
+          }
+        }
+      }
       
       // GPS 정보 저장
+      bool hasValidGps = false;
       if (coordinates != null) {
-        _gpsInfo = '${coordinates.latitude.toStringAsFixed(6)} ${coordinates.longitude.toStringAsFixed(6)}';
+        _gpsInfo = '위도: ${coordinates.latitude.toStringAsFixed(6)}, 경도: ${coordinates.longitude.toStringAsFixed(6)}';
         
         // 경도/위도가 실제 존재하고 유효한지 확인
-        final hasValidCoordinates = coordinates.latitude != 0 && coordinates.longitude != 0;
-        
-        // 위치 정보 자동 설정 (선택적)
-        if (hasValidCoordinates) {
-          // GPS 정보만 저장
-        }
-        
-        // Exif 인터페이스 닫기
-        await exif.close();
-        
-        return hasValidCoordinates;
+        hasValidGps = coordinates.latitude != 0 && coordinates.longitude != 0;
       } else {
         // GPS 정보가 없는 경우 상세 정보 저장
         if (attributes != null) {
@@ -222,14 +239,28 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
         } else {
           _gpsInfo = '이미지에 EXIF 데이터가 없거나 추출할 수 없습니다';
         }
-        
-        // Exif 인터페이스 닫기
-        await exif.close();
-        
-        return false;
       }
+      
+      // 촬영 날짜/시간 저장
+      setState(() {
+        _imageDateTime = dateTime;
+        if (dateTime != null) {
+          _imageDateTimeDisplay = DateFormat('yyyy년 MM월 dd일 HH:mm:ss').format(dateTime);
+        } else {
+          _imageDateTimeDisplay = '촬영 날짜 정보를 찾을 수 없습니다';
+        }
+      });
+      
+      // Exif 인터페이스 닫기
+      await exif.close();
+      
+      return hasValidGps;
     } catch (e) {
       _gpsInfo = 'EXIF 데이터 읽기 오류: $e';
+      setState(() {
+        _imageDateTime = null;
+        _imageDateTimeDisplay = 'EXIF 데이터 읽기 오류: $e';
+      });
       return false;
     }
   }
@@ -278,13 +309,21 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
           _isLoading = true;
         });
         
-        // GPS 정보 확인
-        bool hasGpsData = await _checkGpsExifData(imageFile);
+        // EXIF 데이터에서 GPS 정보와 촬영 날짜/시간 추출
+        bool hasGpsData = await _extractExifData(imageFile);
         
         // 카메라로 촬영한 경우이고 EXIF에 GPS 정보가 없으면 현재 위치 사용
         if (source == ImageSource.camera && !hasGpsData && currentPosition != null) {
           hasGpsData = true;
           _gpsInfo = '위도: ${currentPosition.latitude.toStringAsFixed(6)}, 경도: ${currentPosition.longitude.toStringAsFixed(6)}';
+        }
+        
+        // 촬영 날짜/시간이 없는 경우 현재 시간 사용 (카메라로 촬영한 경우)
+        if (source == ImageSource.camera && _imageDateTime == null) {
+          setState(() {
+            _imageDateTime = DateTime.now();
+            _imageDateTimeDisplay = DateFormat('yyyy년 MM월 dd일 HH:mm:ss').format(_imageDateTime!);
+          });
         }
         
         setState(() {
@@ -305,6 +344,19 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
             message: 'GPS 정보가 확인되었습니다: $_gpsInfo',
           );
         }
+        
+        // 촬영 날짜/시간 정보 표시
+        if (_imageDateTime != null) {
+          UIHelper.showSuccessSnackBar(
+            context,
+            message: '촬영 날짜: $_imageDateTimeDisplay',
+          );
+        } else {
+          UIHelper.showWarningSnackBar(
+            context,
+            message: '촬영 날짜 정보를 찾을 수 없습니다. 현재 시간으로 대체됩니다.',
+          );
+        }
       }
     } catch (e) {
       setState(() {
@@ -315,36 +367,6 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
         context,
         message: '이미지 선택 중 오류가 발생했습니다: $e',
       );
-    }
-  }
-  
-  // 날짜 선택 메서드
-  Future<void> _selectDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.orange,
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-            dialogBackgroundColor: Colors.white,
-          ),
-          child: child!,
-        );
-      },
-    );
-    
-    if (picked != null) {
-      setState(() {
-        _dateController.text = DateFormat('yyyy-MM-dd').format(picked);
-      });
     }
   }
   
@@ -567,17 +589,20 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
         // 먼저 users 컬렉션 아래에 유저 ID로 문서 생성 (없으면)
         final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
         
+        // 촬영 날짜/시간이 없으면 현재 시간 사용
+        DateTime finalDateTime = _imageDateTime ?? DateTime.now();
+        
         // 리포트 데이터 생성
         final reportData = {
           'userId': user.uid,
           'userEmail': user.email,
-          'date': _dateController.text,
+          'date': Timestamp.fromDate(finalDateTime), // EXIF에서 추출한 촬영 날짜/시간을 타임스탬프로 저장
           'violation': violationText,
           'imageUrl': imageUrl,
           'hasGpsData': _hasGpsData, // GPS 정보 유무 저장
           'gpsInfo': _gpsInfo,       // 구체적인 GPS 정보 저장
           'status': 'submitted',     // 처리 상태
-          'createdAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(), // 신고 생성 시간
         };
         
         // 유저 문서 내의 reports 하위 컬렉션에 리포트 추가
@@ -623,7 +648,8 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
       _imageFile = null;
       _hasGpsData = false;
       _gpsInfo = '';
-      _dateController.text = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      _imageDateTime = null;
+      _imageDateTimeDisplay = '';
     });
     
     // 애니메이션 효과 재생
@@ -686,7 +712,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                         ),
                       ),
                       const SizedBox(height: 16),
-                      _buildPreviewItem('날짜', _dateController.text),
+                      _buildPreviewItem('촬영 날짜', _imageDateTimeDisplay.isNotEmpty ? _imageDateTimeDisplay : '촬영 날짜 정보 없음'),
                       _buildPreviewItem('위반 사항', violationText),
                       _buildPreviewItem('GPS 정보', _hasGpsData ? _gpsInfo : '없음'),
                       const SizedBox(height: 16),
@@ -780,48 +806,60 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('날짜', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
+                  // 촬영 날짜/시간 정보 표시 (EXIF에서 추출)
+                  if (_imageFile != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: _imageDateTime != null 
+                            ? Colors.green.withOpacity(0.1) 
+                            : Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _imageDateTime != null 
+                              ? Colors.green 
+                              : Colors.orange,
+                          width: 1,
                         ),
-                      ],
-                    ),
-                    child: TextFormField(
-                      controller: _dateController,
-                      readOnly: true,
-                      decoration: InputDecoration(
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Colors.orange, width: 2),
-                        ),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.calendar_today, color: Colors.orange),
-                          onPressed: _selectDate,
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
                       ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return '날짜를 선택해주세요';
-                        }
-                        return null;
-                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                _imageDateTime != null 
+                                    ? Icons.schedule 
+                                    : Icons.warning_amber,
+                                color: _imageDateTime != null 
+                                    ? Colors.green 
+                                    : Colors.orange,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '촬영 날짜/시간',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: _imageDateTime != null 
+                                      ? Colors.green 
+                                      : Colors.orange,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _imageDateTimeDisplay.isNotEmpty 
+                                ? _imageDateTimeDisplay 
+                                : '이미지를 선택하면 촬영 날짜가 표시됩니다',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
+                  
                   Row(
                     children: [
                       const Text('이미지 첨부', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -900,7 +938,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                                   child: const Icon(Icons.camera_alt, color: Colors.blue),
                                 ),
                                 title: const Text('카메라로 촬영'),
-                                subtitle: const Text('GPS 정보가 포함된 이미지를 촬영해 주세요'),
+                                subtitle: const Text('GPS 정보와 촬영 날짜가 자동으로 기록됩니다'),
                                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                                 onTap: () {
                                   Navigator.pop(context);
@@ -917,7 +955,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                                   child: const Icon(Icons.photo_library, color: Colors.green),
                                 ),
                                 title: const Text('갤러리에서 선택'),
-                                subtitle: const Text('GPS 정보가 포함된 이미지를 선택해 주세요'),
+                                subtitle: const Text('GPS 정보와 촬영 날짜가 포함된 이미지를 선택해 주세요'),
                                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                                 onTap: () {
                                   Navigator.pop(context);
@@ -1013,6 +1051,8 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                                       setState(() {
                                         _imageFile = null;
                                         _hasGpsData = false;
+                                        _imageDateTime = null;
+                                        _imageDateTimeDisplay = '';
                                       });
                                     },
                                     child: Container(
@@ -1058,7 +1098,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                                   Icon(Icons.camera_alt, size: 50, color: Colors.grey),
                                   SizedBox(height: 8),
                                   Text(
-                                    'GPS 정보가 포함된 이미지를 선택해주세요',
+                                    'GPS 정보와 촬영 날짜가 포함된 이미지를 선택해주세요',
                                     style: TextStyle(color: Colors.grey),
                                     textAlign: TextAlign.center,
                                   ),
@@ -1303,12 +1343,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '1. 날짜 입력: 위반 사항을 목격한 날짜를 선택하세요.',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        SizedBox(height: 8),
-        Text(
-                          '2. 이미지 첨부: 위반 사항을 확인할 수 있는 사진을 첨부하세요. GPS 정보가 포함된 이미지만 사용 가능합니다. 위치 정보 저장 기능이 켜진 상태에서 촬영된 사진을 사용하세요.',
+                          '1. 이미지 첨부: 위반 사항을 확인할 수 있는 사진을 첨부하세요. GPS 정보와 촬영 날짜가 포함된 이미지만 사용 가능합니다.',
                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                         ),
                         SizedBox(height: 4),
@@ -1318,20 +1353,29 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
                         ),
                         SizedBox(height: 4),
                         Text(
-                          '   * 갤러리에서 선택 시: 촬영 당시 위치 정보가 저장된 사진을 선택하세요.',
+                          '   * 갤러리에서 선택 시: 촬영 당시 위치 정보와 날짜가 저장된 사진을 선택하세요.',
                           style: TextStyle(fontSize: 12, color: Colors.deepOrange),
                         ),
                         SizedBox(height: 8),
                         Text(
-                          '3. 위반 사항 선택: 위반 사항의 유형을 선택하거나, \'기타\'를 선택한 경우 상세 내용을 입력하세요.',
+                          '2. 위반 사항 선택: 위반 사항의 유형을 선택하거나, \'기타\'를 선택한 경우 상세 내용을 입력하세요.',
                           style: TextStyle(fontSize: 14),
                         ),
                         SizedBox(height: 8),
                         Text(
-                          '4. 미리보기 및 신고: 입력한 내용을 미리보기로 확인한 후 신고하세요.',
+                          '3. 미리보기 및 신고: 입력한 내용을 미리보기로 확인한 후 신고하세요.',
                           style: TextStyle(fontSize: 14),
                         ),
                         SizedBox(height: 16),
+                        Text(
+                          '※ 촬영 날짜와 시간은 이미지의 EXIF 데이터에서 자동으로 추출됩니다.',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        SizedBox(height: 8),
                         Text(
                           '※ GPS 정보가 없는 이미지는 신고가 불가능합니다. 꼭 GPS 정보가 포함된 이미지를 사용해 주세요.',
                           style: TextStyle(
