@@ -223,7 +223,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
       // GPS 정보 저장
       bool hasValidGps = false;
       if (coordinates != null) {
-        _gpsInfo = '위도: ${coordinates.latitude.toStringAsFixed(6)}, 경도: ${coordinates.longitude.toStringAsFixed(6)}';
+        _gpsInfo = '${coordinates.latitude.toStringAsFixed(6)} ${coordinates.longitude.toStringAsFixed(6)}';
         
         // 경도/위도가 실제 존재하고 유효한지 확인
         hasValidGps = coordinates.latitude != 0 && coordinates.longitude != 0;
@@ -609,7 +609,7 @@ class _ReportViolationScreenState extends State<ReportViolationScreen> with Sing
         await userDocRef.collection('reports').add(reportData);
         
         // 전체 리포트 컬렉션에도 동일한 데이터 저장 (검색 및 관리 목적)
-        await FirebaseFirestore.instance.collection('all_reports').add(reportData);
+        await FirebaseFirestore.instance.collection('Report').add(reportData);
         
         // 성공 메시지 표시
         if (mounted) {
