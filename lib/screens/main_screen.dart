@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'mascot_screen.dart';
 import 'report_violation_screen.dart';
+import 'chat_screen.dart'; // 새로 추가된 ChatScreen import
 import 'safety_news_screen.dart';
 import 'my_reports_screen.dart';
 
@@ -14,7 +15,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   late PageController _pageController;
   late AnimationController _animationController;
   
-  // 각 탭에 대한 아이콘 애니메이션 컨트롤러 리스트
+  // 각 탭에 대한 아이콘 애니메이션 컨트롤러 리스트 (5개로 증가)
   late List<AnimationController> _iconAnimationControllers;
   
   // 애니메이션된 아이콘들
@@ -31,9 +32,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 300),
     );
     
-    // 아이콘 애니메이션 컨트롤러 초기화
+    // 아이콘 애니메이션 컨트롤러 초기화 (5개로 증가)
     _iconAnimationControllers = List.generate(
-      4,
+      5,
       (index) => AnimationController(
         duration: const Duration(milliseconds: 300),
         vsync: this,
@@ -48,11 +49,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
   
   void _createAnimatedIcons() {
-    final iconData = [Icons.home, Icons.report_problem, Icons.article, Icons.history];
-    final labels = ['설명서', '신고하기', '관련뉴스', '내 신고'];
+    final iconData = [
+      Icons.home, 
+      Icons.report_problem, 
+      Icons.smart_toy_rounded, // AI 챗봇 아이콘 (중간에 위치)
+      Icons.article, 
+      Icons.history
+    ];
+    final labels = ['설명서', '신고하기', 'AI 챗봇', '관련뉴스', '내 신고'];
     
     _animatedIcons = List.generate(
-      4,
+      5,
       (index) {
         final sizeAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
           CurvedAnimation(
@@ -69,10 +76,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               children: [
                 Transform.scale(
                   scale: sizeAnimation.value,
-                  child: Icon(iconData[index]),
+                  child: Icon(
+                    iconData[index],
+                    // AI 챗봇 아이콘의 경우 다른 색상 적용
+                    color: index == 2 && _selectedIndex == index 
+                        ? const Color(0xFF4A90E2) 
+                        : null,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                Text(labels[index]),
+                Text(
+                  labels[index],
+                  style: TextStyle(
+                    // AI 챗봇 텍스트의 경우 다른 색상 적용
+                    color: index == 2 && _selectedIndex == index 
+                        ? const Color(0xFF4A90E2) 
+                        : null,
+                  ),
+                ),
               ],
             );
           },
@@ -136,6 +157,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           children: [
             Mascot_Screen(key: UniqueKey()),
             ReportViolationScreen(key: UniqueKey()),
+            ChatScreen(key: UniqueKey()), // AI 챗봇 화면 추가 (중간에 위치)
             SafetyNewsScreen(key: UniqueKey()),
             MyReportsScreen(key: UniqueKey()),
           ],
@@ -162,11 +184,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               label: '',
             ),
             BottomNavigationBarItem(
-              icon: _animatedIcons[2],
+              icon: _animatedIcons[2], // AI 챗봇 아이콘 (중간에 위치)
               label: '',
             ),
             BottomNavigationBarItem(
               icon: _animatedIcons[3],
+              label: '',
+            ),
+            BottomNavigationBarItem(
+              icon: _animatedIcons[4],
               label: '',
             ),
           ],
